@@ -1,0 +1,107 @@
+#!/bin/bash
+
+set -ueo pipefail
+
+LXC_SSHSETUP_PATH="$HOME/.ssh/lxc"
+
+info() {
+    printf "%s\n" "$*" >&2
+}
+
+fatal() {
+    printf "%s\n" "$*" >&2
+    exit 1
+}
+
+runlxc() {
+    sudo lxc "$@"
+}
+
+if [ $# -eq 0 ]; then
+    fatal "usage: ${0##*/} <instance>..."
+fi
+
+instances="$(runlxc list --format=json)"
+
+setup() {
+    name="$1"
+
+    info "checking instance '${name}'..."
+    query="map(select(.name == \"${name}\")) | first"
+    info="$(jq "${query}" <<< "${instances}")" ||
+    if [ "${info}" == "null" ]; then
+        fatal "could not find instance '${name}'"
+    fi
+
+    status="$(jq -r ".status" <<< "${info}")"
+    if [ ! "${status}" = "Running" ]; then
+        fatal "instance '${name}' is not running"
+    fi
+
+    query='
+        .state.network | map(.addresses) | flatten
+        | map(select(.scope == "global" and .family == "inet")) | first.address
+    '
+    address="$(jq -r "${query}" <<< "${info}")"
+    if [ "${address}" = "null" ]; then
+        fatal "could not find reachable ipv4 address"
+    fi
+
+    key_file="${LXC_SSHSETUP_PATH}/${name}"
+    pubkey_file="${key_file}.pub"
+    config_file="${key_file}.config"
+
+    if [ ! -f "${key_file}" ]; then
+        info "generating public key pair for instance '${name}'..."
+        dir="$(dirname "${key_file}")"
+        mkdir -p "${dir}"
+        chmod 700 "${dir}"
+        ssh-keygen -t ed25519 -f "${key_file}" -N "" >&2
+    fi
+
+    script="$(cat <<"EOS"
+set -ueo pipefail
+KEYS_PATH="$HOME/.ssh/authorized_keys"
+silent() {
+    "$@" >/dev/null 2>&1
+}
+trap "echo ERROR" ERR
+read key
+if ! (silent grep -F "$key" "$KEYS_PATH"); then
+    mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh" && cat >> "$KEYS_PATH" <<< "$key"
+fi
+if ! (silent sshd -V); then
+    echo "installing sshd..."
+    if silent pacman -V; then
+        pacman -Syu --noconfirm && pacman -S openssh --noconfirm
+    else
+        echo "could not find any supported package managers" >&2 && exit 1
+    fi
+fi
+systemctl enable sshd && systemctl start sshd
+EOS
+    )"
+
+    info "updating instance '${name}'..."
+    decorate() {
+        prefix=$'  > \e[2m'
+        suffix=$'\e[m'
+        sed -e "s/^/${prefix}/" -e "s/\$/${suffix}/"
+    }
+    runlxc exec "${name}" -- bash -c "${script}" 2>&1 < "${pubkey_file}" | decorate >&2
+
+    info "writing ssh config to '${name}'..."
+    cat > "${config_file}" <<EOS
+Host ${name}
+    HostName ${address}
+    User root
+    IdentityFile ${key_file}
+    StrictHostKeyChecking no
+EOS
+
+    info "setup completed"
+}
+
+for name in "$@"; do
+    setup "${name}"
+done
