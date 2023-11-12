@@ -74,11 +74,17 @@ if ! (silent sshd -V); then
     echo "installing sshd..."
     if silent pacman -V; then
         pacman -Syu --noconfirm && pacman -S openssh --noconfirm
+    elif silent apt-get -v; then
+        apt-get update && apt-get install -y --no-install-recommends openssh-server
     else
         echo "could not find any supported package managers" >&2 && exit 1
     fi
 fi
-systemctl enable sshd && systemctl start sshd
+if (systemctl status ssh >/dev/null 2>&1); then
+    systemctl enable ssh && systemctl start ssh
+else
+    systemctl enable sshd && systemctl start sshd
+fi
 EOS
     )"
 
