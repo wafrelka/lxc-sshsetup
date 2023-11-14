@@ -18,7 +18,7 @@ runlxc() {
 }
 
 fatal_usage() {
-    fatal "usage: ${0##*/} [-p PORT] [<user>@]<instance>..."
+    fatal "usage: ${0##*/} [<user>@]<instance>[:<port>]..."
 }
 
 quote() {
@@ -27,25 +27,7 @@ quote() {
     sed -e "s/^/${prefix}/" -e "s/\$/${suffix}/"
 }
 
-targets=()
-port="22"
-
-while [ "$#" -ne 0 ]; do
-    case "$1" in
-        "-p" | "--port")
-            port="$2"
-            shift
-            ;;
-        "-*")
-            fatal_usage
-            ;;
-        *)
-            targets+=("$1")
-            ;;
-    esac
-    shift
-done
-
+targets=("$@")
 if [ "${#targets[@]}" -eq 0 ]; then
     fatal_usage
 fi
@@ -54,12 +36,15 @@ instances="$(runlxc list --format=json)"
 
 setup() {
     target="$1"
-    if (grep -q "@" <<< "${target}"); then
-        user="$(cut -d @ -f 1 <<< "${target}")"
-        name="$(cut -d @ -f 2- <<< "${target}")"
+    port="${target##*:}"
+    port="${port:-22}"
+    host="${target%%:*}"
+    if (grep -q "@" <<< "${host}"); then
+        user="$(cut -d @ -f 1 <<< "${host}")"
+        name="$(cut -d @ -f 2- <<< "${host}")"
     else
         user="root"
-        name="$1"
+        name="${host}"
     fi
 
     info "checking instance '${name}'..."
@@ -134,7 +119,7 @@ fi
 EOS
 )"
 
-    info "updating authorized keys of '${target}'..."
+    info "updating authorized keys of '${user}@${name}'..."
     su=()
     if [ "${user}" != "root" ]; then
         su=("su" "-l" "${user}")
