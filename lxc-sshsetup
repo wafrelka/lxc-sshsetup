@@ -62,13 +62,15 @@ setup() {
     fi
 
     query='
-        .state.network | map(.addresses) | flatten
+        .state.network.eth0.addresses
         | map(select(.scope == "global" and .family == "inet")) | first.address
     '
     address="$(jq -r "${query}" <<< "${info}")"
     if [ "${address}" = "null" ]; then
         fatal "could not find reachable ipv4 address"
     fi
+
+    info "address: ${address}"
 
     key_file="${LXC_SSHSETUP_PATH}/${name}"
     pubkey_file="${key_file}.pub"
