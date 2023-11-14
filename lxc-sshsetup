@@ -18,10 +18,16 @@ runlxc() {
 }
 
 fatal_usage() {
-    fatal "usage: ${0##*/} [-p PORT] <instance>..."
+    fatal "usage: ${0##*/} [-p PORT] [<user>@]<instance>..."
 }
 
-names=()
+quote() {
+    prefix=$'  > \e[2m'
+    suffix=$'\e[m'
+    sed -e "s/^/${prefix}/" -e "s/\$/${suffix}/"
+}
+
+targets=()
 port="22"
 
 while [ "$#" -ne 0 ]; do
@@ -34,20 +40,27 @@ while [ "$#" -ne 0 ]; do
             fatal_usage
             ;;
         *)
-            names+=("$1")
+            targets+=("$1")
             ;;
     esac
     shift
 done
 
-if [ "${#names[@]}" -eq 0 ]; then
+if [ "${#targets[@]}" -eq 0 ]; then
     fatal_usage
 fi
 
 instances="$(runlxc list --format=json)"
 
 setup() {
-    name="$1"
+    target="$1"
+    if (grep -q "@" <<< "${target}"); then
+        user="$(cut -d @ -f 1 <<< "${target}")"
+        name="$(cut -d @ -f 2- <<< "${target}")"
+    else
+        user="root"
+        name="$1"
+    fi
 
     info "checking instance '${name}'..."
     query="map(select(.name == \"${name}\")) | first"
@@ -84,17 +97,12 @@ setup() {
         ssh-keygen -t ed25519 -f "${key_file}" -N "" >&2
     fi
 
-    script="$(cat <<"EOS"
+    sshd_script="$(cat <<"EOS"
 set -ueo pipefail
-KEYS_PATH="$HOME/.ssh/authorized_keys"
+trap "echo ERROR" ERR
 silent() {
     "$@" >/dev/null 2>&1
 }
-trap "echo ERROR" ERR
-read key
-if ! (silent grep -F "$key" "$KEYS_PATH"); then
-    mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh" && cat >> "$KEYS_PATH" <<< "$key"
-fi
 if ! (silent sshd -V); then
     echo "installing sshd..."
     if silent pacman -V; then
@@ -111,21 +119,33 @@ else
     systemctl enable sshd && systemctl start sshd
 fi
 EOS
-    )"
+)"
 
-    info "updating instance '${name}'..."
-    decorate() {
-        prefix=$'  > \e[2m'
-        suffix=$'\e[m'
-        sed -e "s/^/${prefix}/" -e "s/\$/${suffix}/"
-    }
-    runlxc exec "${name}" -- bash -c "${script}" 2>&1 < "${pubkey_file}" | decorate >&2
+    info "configuring instance '${name}'..."
+    runlxc exec "${name}" -- bash -c "${sshd_script}" 2>&1 | quote >&2
+
+    key_script="$(cat <<"EOS"
+set -ueo pipefail
+KEYS_PATH="$HOME/.ssh/authorized_keys"
+read key
+if ! (grep -F "$key" "$KEYS_PATH" >/dev/null 2>&1); then
+    mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh" && cat >> "$KEYS_PATH" <<< "$key"
+fi
+EOS
+)"
+
+    info "updating authorized keys of '${target}'..."
+    su=()
+    if [ "${user}" != "root" ]; then
+        su=("su" "-l" "${user}")
+    fi
+    runlxc exec "${name}" -- "${su[@]}" bash -c "${key_script}" 2>&1 < "${pubkey_file}" | quote >&2
 
     info "writing ssh config to '${name}'..."
     cat > "${config_file}" <<EOS
 Host ${name}
     HostName ${address}
-    User root
+    User ${user}
     IdentityFile ${key_file}
     StrictHostKeyChecking no
     Port ${port}
@@ -134,6 +154,6 @@ EOS
     info "setup completed"
 }
 
-for name in "${names[@]}"; do
-    setup "${name}"
+for target in "${targets[@]}"; do
+    setup "${target}"
 done
