@@ -17,8 +17,31 @@ runlxc() {
     sudo lxc "$@"
 }
 
-if [ $# -eq 0 ]; then
-    fatal "usage: ${0##*/} <instance>..."
+fatal_usage() {
+    fatal "usage: ${0##*/} [-p PORT] <instance>..."
+}
+
+names=()
+port="22"
+
+while [ "$#" -ne 0 ]; do
+    case "$1" in
+        "-p" | "--port")
+            port="$2"
+            shift
+            ;;
+        "-*")
+            fatal_usage
+            ;;
+        *)
+            names+=("$1")
+            ;;
+    esac
+    shift
+done
+
+if [ "${#names[@]}" -eq 0 ]; then
+    fatal_usage
 fi
 
 instances="$(runlxc list --format=json)"
@@ -103,11 +126,12 @@ Host ${name}
     User root
     IdentityFile ${key_file}
     StrictHostKeyChecking no
+    Port ${port}
 EOS
 
     info "setup completed"
 }
 
-for name in "$@"; do
+for name in "${names[@]}"; do
     setup "${name}"
 done
