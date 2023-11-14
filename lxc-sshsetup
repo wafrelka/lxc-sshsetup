@@ -85,12 +85,12 @@ setup() {
 
     info "address: ${address}"
 
-    key_file="${LXC_SSHSETUP_PATH}/${name}"
+    key_file="${LXC_SSHSETUP_PATH}/key"
     pubkey_file="${key_file}.pub"
-    config_file="${key_file}.config"
+    config_file="${LXC_SSHSETUP_PATH}/${name}.config"
 
     if [ ! -f "${key_file}" ]; then
-        info "generating public key pair for instance '${name}'..."
+        info "generating public key pair..."
         dir="$(dirname "${key_file}")"
         mkdir -p "${dir}"
         chmod 700 "${dir}"
