@@ -54,10 +54,16 @@ setup() {
         fatal "could not find instance '${name}'"
     fi
 
-    status="$(jq -r ".status" <<< "${info}")"
-    if [ ! "${status}" = "Running" ]; then
-        fatal "instance '${name}' is not running"
-    fi
+    while true; do
+        status="$(jq -r ".status" <<< "${info}")"
+        if [ "${status}" = "Running" ]; then
+            break
+        fi
+        info "waiting for instance '${name}' to be ready (status=${status})"
+        sleep 10
+        instances="$(runlxc list --format=json)"
+        info="$(jq "${query}" <<< "${instances}")"
+    done
 
     query='
         .state.network.eth0.addresses
