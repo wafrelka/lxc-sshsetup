@@ -23,7 +23,7 @@ fatal_usage() {
 
 quote() {
     prefix=$'  > \e[2m'
-    suffix=$'\e[m'
+    suffix=$'\e[m\r'
     sed -e "s/^/${prefix}/" -e "s/\$/${suffix}/"
 }
 
