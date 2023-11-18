@@ -49,7 +49,7 @@ setup() {
 
     info "checking instance '${name}'..."
     query="map(select(.name == \"${name}\")) | first"
-    info="$(jq "${query}" <<< "${instances}")" ||
+    info="$(jq "${query}" <<< "${instances}")"
     if [ "${info}" == "null" ]; then
         fatal "could not find instance '${name}'"
     fi
