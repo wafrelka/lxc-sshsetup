@@ -94,7 +94,7 @@ trap "echo ERROR" ERR
 silent() {
     "$@" >/dev/null 2>&1
 }
-if ! (silent sshd -V); then
+if ! (silent command -v sshd); then
     echo "installing sshd..."
     if silent pacman -V; then
         pacman -Syu --noconfirm && pacman -S openssh --noconfirm
